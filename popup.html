@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Hide AI-Labeled Videos</title>
+    <title>Hide Members-Only Videos</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -96,40 +96,6 @@
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
-      fieldset {
-        border: 0;
-        margin: 14px 0 0;
-        padding: 12px 0 0;
-        border-top: 1px solid var(--line);
-      }
-      fieldset[disabled] {
-        opacity: 0.45;
-      }
-      legend {
-        padding: 0;
-        float: left;
-        width: 100%;
-        margin-bottom: 6px;
-        color: var(--muted);
-        font-size: 12px;
-      }
-      label.opt {
-        display: flex;
-        gap: 8px;
-        align-items: flex-start;
-        padding: 4px 0;
-        clear: both;
-        cursor: pointer;
-      }
-      label.opt input {
-        margin: 2px 0 0;
-        accent-color: var(--accent);
-      }
-      label.opt small {
-        display: block;
-        color: var(--muted);
-        font-size: 12px;
-      }
       .stats {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -199,7 +165,7 @@
     </style>
   </head>
   <body>
-    <h1>Hide AI-Labeled Videos</h1>
+    <h1>Hide Members-Only Videos</h1>
 
     <div class="row">
       <label for="enabled">Filter YouTube</label>
@@ -208,24 +174,9 @@
       </div>
     </div>
 
-    <fieldset id="modes">
-      <legend>What to do with labeled videos</legend>
-      <label class="opt">
-        <input type="radio" name="mode" value="hide" />
-        <div>Remove them</div>
-      </label>
-      <label class="opt">
-        <input type="radio" name="mode" value="dim" />
-        <div>
-          Dim and tag them<small
-            >Use this to see what the filter catches.</small
-          >
-        </div>
-      </label>
-    </fieldset>
 
     <div class="stats">
-      <div class="stat"><b id="ai">0</b><span>labeled videos found</span></div>
+      <div class="stat"><b id="mo">0</b><span>members-only videos found</span></div>
       <div class="stat"><b id="total">0</b><span>videos checked</span></div>
     </div>
 

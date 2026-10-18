@@ -1,34 +1,63 @@
-/* Normal mode: labeled videos are removed from the page. */
-html.aif-hide [data-aif="ai"] {
+/* Members-only videos are removed from the page. */
+html.hmo-hide [data-hmo="mo"] {
   display: none !important;
 }
 
-/* Test mode: labeled videos stay visible but dimmed and tagged, so you can
-   see exactly what the filter would remove. */
-html.aif-dim [data-aif="ai"] {
-  position: relative !important;
-  outline: 2px dashed #e5484d !important;
-  outline-offset: -2px;
+/* Cards that already show YouTube's "Members only" badge are removed straight
+   away, before the background check has answered. */
+html.hmo-hide
+  :is(
+    ytd-rich-item-renderer,
+    ytd-video-renderer,
+    ytd-compact-video-renderer,
+    ytd-grid-video-renderer
+  ):has(.badge-style-type-members-only) {
+  display: none !important;
 }
-html.aif-dim [data-aif="ai"] > * {
-  opacity: 0.3 !important;
+
+/* Close the gaps. YouTube's home, subscriptions and channel grids are built
+   from fixed rows (or fixed-width items with first-column margins), so a
+   removed card leaves a hole. Lay the grid out as one free-flowing CSS grid
+   instead, so the following videos move up to fill the space. Search results
+   and the sidebar are plain lists and already close up on their own. */
+html.hmo-hide ytd-rich-grid-renderer > #contents {
+  display: grid !important;
+  grid-template-columns: repeat(
+    var(--ytd-rich-grid-items-per-row, 4),
+    minmax(0, 1fr)
+  );
+  column-gap: var(--ytd-rich-grid-item-margin, 16px);
 }
-html.aif-dim [data-aif="ai"]::after {
-  content: "AI-labeled";
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 10;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #e5484d;
-  color: #fff;
-  font: 600 12px/1.5 Roboto, Arial, sans-serif;
-  pointer-events: none;
+/* Unwrap row containers so their videos become cells of that grid. */
+html.hmo-hide ytd-rich-grid-renderer > #contents > ytd-rich-grid-row,
+html.hmo-hide
+  ytd-rich-grid-renderer
+  > #contents
+  > ytd-rich-grid-row
+  > #contents {
+  display: contents !important;
+}
+html.hmo-hide ytd-rich-grid-renderer > #contents > ytd-rich-item-renderer,
+html.hmo-hide
+  ytd-rich-grid-renderer
+  > #contents
+  > ytd-rich-grid-row
+  > #contents
+  > ytd-rich-item-renderer {
+  width: auto !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+/* Shelves (Shorts, news, …) and the "load more" spinner span the full width. */
+html.hmo-hide
+  ytd-rich-grid-renderer
+  > #contents
+  > :not(ytd-rich-item-renderer, ytd-rich-grid-row) {
+  grid-column: 1 / -1;
 }
 
 /* Notice shown in the Shorts player. */
-#aif-banner {
+#hmo-banner {
   position: fixed;
   top: 68px;
   left: 50%;

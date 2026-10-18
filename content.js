@@ -1,13 +1,13 @@
 /*
  * Content script: finds video cards on YouTube pages, looks up whether each
- * video carries YouTube's AI label, remembers the answer, and hides the ones
- * that do. In the Shorts player it skips labeled Shorts instead.
+ * video is members-only, remembers the answer, and removes the ones that
+ * are. In the Shorts player it skips members-only Shorts instead.
  */
 (() => {
   "use strict";
   if (window.top !== window) return;
 
-  const detect = globalThis.AIF_DETECT;
+  const detect = globalThis.HMO_DETECT;
   const DAY = 864e5;
 
   // ---- Everything YouTube-specific that may need updating lives here -------
@@ -32,7 +32,7 @@
     maxConcurrent: 6, // each lookup takes ~1s, mostly YouTube's server time
     lookAhead: "800px 0px", // cards this far outside the viewport are checked first
     scanDelay: 200,
-    recheckDays: 7, // unlabeled videos only; YouTube can add a label later
+    recheckDays: 7, // public videos only; a video can be made members-only later
     maxCached: 10000, // 11 bytes each, so storage stays around 110 KB
     maxAttempts: 3,
     skipDelay: 1200,
@@ -40,16 +40,16 @@
   };
   // --------------------------------------------------------------------------
 
-  const DEFAULTS = { enabled: true, mode: "hide" }; // mode: 'hide' | 'dim'
+  const DEFAULTS = { enabled: true };
   const ID_RE = /^[\w-]{11}$/;
   const html = document.documentElement;
-  // Bump whenever detect.js changes what counts as labeled.
-  const RULES = 2;
+  // Bump whenever detect.js changes what counts as members-only.
+  const RULES = 1;
 
   let settings = { ...DEFAULTS };
   let alive = true; // false once the extension is reloaded or removed
 
-  const verdicts = new Map(); // videoId -> true (labeled) | false, oldest first
+  const verdicts = new Map(); // videoId -> true (members-only) | day checked, oldest first
   const paths = new Map(); // videoId -> same-origin path to fetch
   const attempts = new Map(); // videoId -> failed lookups
   const visible = new WeakSet(); // cards near the viewport
@@ -80,14 +80,7 @@
   const withDefaults = (stored) => ({ ...DEFAULTS, ...stored });
 
   function applyMode() {
-    html.classList.toggle(
-      "aif-hide",
-      settings.enabled && settings.mode === "hide",
-    );
-    html.classList.toggle(
-      "aif-dim",
-      settings.enabled && settings.mode === "dim",
-    );
+    html.classList.toggle("hmo-hide", settings.enabled);
   }
   applyMode(); // hide by default before settings have loaded
 
@@ -104,16 +97,16 @@
 
   // ---- Verdict cache --------------------------------------------------------
 
-  // Labeled answers are kept for good. Unlabeled ones are checked again after
-  // CFG.recheckDays, since YouTube can add the label later. In memory each
-  // video maps to true (labeled) or the day it was found unlabeled. Storage
-  // holds back-to-back 11-character ids, oldest first:
-  //   { ai: "id1id2…", ok: { "<day>": "id3id4…", … } }
+  // Members-only answers are kept for good. Public ones are checked again
+  // after CFG.recheckDays, since a creator can restrict a video later. In
+  // memory each video maps to true (members-only) or the day it was found
+  // public. Storage holds back-to-back 11-character ids, oldest first:
+  //   { mo: "id1id2…", ok: { "<day>": "id3id4…", … } }
   const today = () => Math.floor(Date.now() / DAY);
   const isFresh = (v) => v === true || today() - v < CFG.recheckDays;
-  const stateOf = (ai) => (ai ? "ai" : "ok");
+  const stateOf = (mo) => (mo ? "mo" : "ok");
 
-  /** true (labeled), false (not labeled), or undefined (unchecked or due a re-check). */
+  /** true (members-only), false (public), or undefined (unchecked or due a re-check). */
   function known(id) {
     const v = verdicts.get(id);
     return v !== undefined && isFresh(v) ? v === true : undefined;
@@ -125,24 +118,17 @@
 
   /** Stored verdicts as [id, value] pairs, oldest first. */
   function decode(stored) {
-    if (!stored) return [];
-    if (typeof stored.ai === "string") {
-      const out = [];
-      // Integer keys come out in ascending order, so oldest day first.
-      if (stored.ok && typeof stored.ok === "object")
-        for (const [day, ids] of Object.entries(stored.ok))
-          for (const id of idsIn(ids)) out.push([id, +day]);
-      for (const id of idsIn(stored.ai)) out.push([id, true]);
-      return out;
-    }
-    // Format used up to 1.1.2: { id: [ai, checkedAt] }
-    return Object.entries(stored)
-      .filter(([, e]) => Array.isArray(e))
-      .sort((a, b) => a[1][1] - b[1][1])
-      .map(([id, [ai, t]]) => [id, ai ? true : Math.floor(t / DAY)]);
+    if (!stored || typeof stored.mo !== "string") return [];
+    const out = [];
+    // Integer keys come out in ascending order, so oldest day first.
+    if (stored.ok && typeof stored.ok === "object")
+      for (const [day, ids] of Object.entries(stored.ok))
+        for (const id of idsIn(ids)) out.push([id, +day]);
+    for (const id of idsIn(stored.mo)) out.push([id, true]);
+    return out;
   }
 
-  // A label beats no label, and a later check beats an earlier one.
+  // Members-only beats public, and a later check beats an earlier one.
   const isNewer = (a, b) =>
     b === undefined || (a !== b && (a === true || (b !== true && a > b)));
 
@@ -169,26 +155,26 @@
   function saveNow() {
     clearTimeout(saveTimer);
     saveTimer = 0;
-    // Unlabeled answers due a re-check aren't worth keeping. Over the cap,
-    // forget the oldest unlabeled ones next, since losing one only costs a
-    // re-check, then the oldest labeled ones.
+    // Public answers due a re-check aren't worth keeping. Over the cap,
+    // forget the oldest public ones next, since losing one only costs a
+    // re-check, then the oldest members-only ones.
     for (const [id, v] of verdicts) if (!isFresh(v)) verdicts.delete(id);
     let excess = verdicts.size - CFG.maxCached;
-    for (const labeled of [false, true]) {
+    for (const restricted of [false, true]) {
       for (const [id, v] of verdicts) {
         if (excess <= 0) break;
-        if ((v === true) !== labeled) continue;
+        if ((v === true) !== restricted) continue;
         verdicts.delete(id);
         excess--;
       }
     }
-    let ai = "";
+    let mo = "";
     const ok = {};
     for (const [id, v] of verdicts) {
-      if (v === true) ai += id;
+      if (v === true) mo += id;
       else ok[v] = (ok[v] || "") + id;
     }
-    safeChrome(() => chrome.storage.local.set({ verdicts: { ai, ok } }));
+    safeChrome(() => chrome.storage.local.set({ verdicts: { mo, ok } }));
   }
 
   // ---- Video URLs -----------------------------------------------------------
@@ -227,7 +213,7 @@
 
   const cardFor = (link) =>
     link.closest(CFG.outerCards) || link.closest(CFG.innerCards);
-  const pendingCards = () => document.querySelectorAll('[data-aif="pending"]');
+  const pendingCards = () => document.querySelectorAll('[data-hmo="pending"]');
 
   const viewport = new IntersectionObserver(
     (entries) => {
@@ -237,7 +223,7 @@
           continue;
         }
         visible.add(card);
-        if (card.dataset.aif === "pending") enqueue(card.dataset.aifId, true);
+        if (card.dataset.hmo === "pending") enqueue(card.dataset.hmoId, true);
       }
     },
     { rootMargin: CFG.lookAhead },
@@ -265,8 +251,8 @@
       seen.add(card);
       // YouTube recycles card elements for different videos, so re-read the
       // id on every scan and reset the card when it changes.
-      if (card.dataset.aifId === ref.id) continue;
-      card.dataset.aifId = ref.id;
+      if (card.dataset.hmoId === ref.id) continue;
+      card.dataset.hmoId = ref.id;
       rememberPath(ref);
       viewport.observe(card);
       resolve(card, ref.id);
@@ -276,30 +262,30 @@
 
   function resolve(card, id) {
     const v = known(id);
-    card.dataset.aif = v === undefined ? "pending" : stateOf(v);
+    card.dataset.hmo = v === undefined ? "pending" : stateOf(v);
     if (v === undefined) enqueue(id, visible.has(card));
   }
 
   function paint(id) {
     const v = known(id);
     if (v === undefined) return;
-    for (const card of document.querySelectorAll(`[data-aif-id="${id}"]`))
-      card.dataset.aif = stateOf(v);
+    for (const card of document.querySelectorAll(`[data-hmo-id="${id}"]`))
+      card.dataset.hmo = stateOf(v);
   }
 
   function resetCards() {
     scannedHref = new WeakMap();
-    for (const card of document.querySelectorAll("[data-aif-id]")) {
-      delete card.dataset.aifId;
-      delete card.dataset.aif;
+    for (const card of document.querySelectorAll("[data-hmo-id]")) {
+      delete card.dataset.hmoId;
+      delete card.dataset.hmo;
     }
   }
 
   // ---- The video that is open right now -------------------------------------
 
-  // A watch page is only reported in the popup. In the Shorts player a labeled
-  // Short is skipped, since Shorts there are fed one after another rather than
-  // chosen from thumbnails.
+  // A watch page is only reported in the popup. In the Shorts player a
+  // members-only Short is skipped, since Shorts there are fed one after
+  // another rather than chosen from thumbnails.
   function checkOpenVideo() {
     const cur = openVideo();
     if (!cur || !settings.enabled) return banner(null);
@@ -312,8 +298,6 @@
       return;
     }
     if (cur.kind !== "shorts" || !v) return banner(null);
-    if (settings.mode === "dim")
-      return banner("AI-labeled Short – would be skipped");
     skipShort(cur.id);
   }
 
@@ -324,7 +308,7 @@
     if (skipping.tries >= CFG.maxSkipTries) {
       skipping.stuck = true;
       stats.skipStuck++;
-      banner("AI-labeled Short – could not skip automatically");
+      banner("Members-only Short – could not skip automatically");
       return;
     }
     skipping.at = now;
@@ -359,7 +343,7 @@
       return;
     }
     bannerEl ??= Object.assign(document.createElement("div"), {
-      id: "aif-banner",
+      id: "hmo-banner",
     });
     if (bannerEl.textContent !== text) bannerEl.textContent = text;
     if (!bannerEl.isConnected && document.body) document.body.append(bannerEl);
@@ -399,7 +383,7 @@
       const id = queue.length ? queue.pop() : backlog.shift();
       const stillNeeded =
         wanted.has(id) ||
-        document.querySelector(`[data-aif-id="${id}"][data-aif="pending"]`);
+        document.querySelector(`[data-hmo-id="${id}"][data-hmo="pending"]`);
       if (!stillNeeded) {
         queued.delete(id);
         continue;
@@ -467,7 +451,7 @@
 
   function retryPending() {
     for (const card of pendingCards()) {
-      enqueue(card.dataset.aifId, visible.has(card));
+      enqueue(card.dataset.hmoId, visible.has(card));
     }
     checkOpenVideo();
     pump();
@@ -497,14 +481,14 @@
           ? "checking"
           : "unknown"
         : v
-          ? "labeled"
-          : "not labeled";
+          ? "members-only"
+          : "public";
     return { kind: cur.kind, id: cur.id, label };
   }
 
   function report() {
     const cards = new Set();
-    const states = { ai: 0, ok: 0, pending: 0 };
+    const states = { mo: 0, ok: 0, pending: 0 };
     const cardTags = {};
     const strayExamples = [];
     let strayLinks = 0;
@@ -524,7 +508,7 @@
       if (cards.has(card)) continue;
       cards.add(card);
       cardTags[card.localName] = (cardTags[card.localName] || 0) + 1;
-      if (card.dataset.aif in states) states[card.dataset.aif]++;
+      if (card.dataset.hmo in states) states[card.dataset.hmo]++;
     }
 
     let version = "";
@@ -536,7 +520,6 @@
       version,
       page: location.pathname,
       enabled: settings.enabled,
-      mode: settings.mode,
       cards: cards.size,
       states,
       cardTags,
@@ -583,7 +566,7 @@
         // Answers found in other tabs. Our own saves land here too and
         // change nothing, so skip the card pass for those.
         if (merge(changes.verdicts.newValue))
-          for (const card of pendingCards()) resolve(card, card.dataset.aifId);
+          for (const card of pendingCards()) resolve(card, card.dataset.hmoId);
       } else {
         // "Clear saved results" was pressed in the popup.
         verdicts.clear();
@@ -600,10 +583,8 @@
       // Answers saved under older detection rules are thrown away, not trusted.
       if (got.rules === RULES) {
         merge(got.verdicts);
-        // Rewrite answers saved in the old, larger format.
-        if (got.verdicts && typeof got.verdicts.ai !== "string") saveNow();
       } else {
-        chrome.storage.local.set({ rules: RULES, verdicts: { ai: "", ok: {} } });
+        chrome.storage.local.set({ rules: RULES, verdicts: { mo: "", ok: {} } });
       }
       applyMode();
       scan();
@@ -613,7 +594,7 @@
   try {
     chrome.storage.onChanged.addListener(onStorageChanged);
     chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-      if (msg?.type === "aif-report") reply(report());
+      if (msg?.type === "hmo-report") reply(report());
     });
   } catch {
     alive = false;

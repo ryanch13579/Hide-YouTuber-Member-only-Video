@@ -1,8 +1,7 @@
 'use strict';
 
-const DEFAULTS = { enabled: true, mode: 'hide' };
+const DEFAULTS = { enabled: true };
 const $ = (id) => document.getElementById(id);
-const modeRadios = document.querySelectorAll('input[name="mode"]');
 
 let settings = { ...DEFAULTS };
 
@@ -10,26 +9,16 @@ let settings = { ...DEFAULTS };
 
 function renderSettings() {
   $('enabled').checked = settings.enabled;
-  $('modes').disabled = !settings.enabled;
-  for (const r of modeRadios) r.checked = r.value === settings.mode;
 }
 
-// verdicts is { ai: "id1id2…", ok: { "<day>": "id3id4…" } }, made of
-// back-to-back 11-character video ids. Older versions stored
-// { id: [ai, checkedAt] }.
+// verdicts is { mo: "id1id2…", ok: { "<day>": "id3id4…" } }, made of
+// back-to-back 11-character video ids.
 function renderCounts(verdicts = {}) {
-  let total, ai;
-  if (typeof verdicts.ai === 'string') {
-    ai = verdicts.ai.length / 11;
-    total = ai;
-    for (const ids of Object.values(verdicts.ok || {})) total += ids.length / 11;
-  } else {
-    const entries = Object.values(verdicts);
-    total = entries.length;
-    ai = entries.filter(([labeled]) => labeled).length;
-  }
+  const mo = typeof verdicts.mo === 'string' ? verdicts.mo.length / 11 : 0;
+  let total = mo;
+  for (const ids of Object.values(verdicts.ok || {})) total += ids.length / 11;
   $('total').textContent = total.toLocaleString();
-  $('ai').textContent = ai.toLocaleString();
+  $('mo').textContent = mo.toLocaleString();
 }
 
 function save() {
@@ -52,13 +41,6 @@ $('enabled').addEventListener('change', (e) => {
   save();
 });
 
-for (const r of modeRadios) {
-  r.addEventListener('change', () => {
-    settings.mode = r.value;
-    save();
-  });
-}
-
 $('clear').addEventListener('click', () => chrome.storage.local.remove('verdicts'));
 
 // ---- What the extension is doing in the current tab ------------------------
@@ -66,8 +48,8 @@ $('clear').addEventListener('click', () => chrome.storage.local.remove('verdicts
 function describeOpenVideo(v) {
   const shorts = v.kind === 'shorts';
   return {
-    labeled: shorts ? 'YouTube labels it as AI, so it is skipped.' : 'YouTube labels it as AI. Its thumbnail is hidden in feeds.',
-    'not labeled': 'YouTube has not labeled it as AI, so it cannot be filtered.',
+    'members-only': shorts ? 'It is members-only, so it is skipped.' : 'It is members-only. Its thumbnail is removed from feeds.',
+    public: 'It is not members-only.',
     checking: 'Checking…',
     unknown: 'Not checked yet.',
   }[v.label];
@@ -77,7 +59,7 @@ function describeProblem(r) {
   const l = r.lookups;
   if (l.pausedSeconds) return `YouTube is refusing checks (${l.lastError}). Paused for ${l.pausedSeconds}s.`;
   if (l.failed && !l.answered) return `Checks are failing: ${l.lastError}.`;
-  if (r.shorts.skipStuck) return 'Couldn\'t auto-skip a labeled Short.';
+  if (r.shorts.skipStuck) return 'Couldn\'t auto-skip a members-only Short.';
   if (!r.cards && r.strayLinks > 5) {
     return 'Video links were found but not recognised as thumbnails.';
   }
@@ -113,7 +95,7 @@ function renderPage(r) {
 async function refreshPage() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    renderPage(await chrome.tabs.sendMessage(tab.id, { type: 'aif-report' }));
+    renderPage(await chrome.tabs.sendMessage(tab.id, { type: 'hmo-report' }));
   } catch {
     renderPage(null);
   }

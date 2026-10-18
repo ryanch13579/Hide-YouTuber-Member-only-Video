@@ -1,151 +1,106 @@
-<<<<<<< HEAD
-# Hide AI-Labeled Videos
+# Hide YouTube Members-Only Videos
 
-A Chrome extension that hides YouTube videos labeled **"Made with AI"**.
+A Chrome extension that removes YouTube's **members-only** videos (the ones
+you have to join a channel to watch).
 
 It removes them from the home feed, subscriptions, search results, the
 watch-page sidebar, channel pages and Shorts shelves, and skips them in the
 Shorts player.
 
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue)
-![Version](https://img.shields.io/badge/version-1.1.4-green)
-
-https://github.com/user-attachments/assets/95990226-7bad-4373-8d9f-f538806d20d3
+![Version](https://img.shields.io/badge/version-1.0.0-green)
 
 ## Features
 
-- **Hide or dim**: remove labeled videos, or keep them visible with a red
-  "AI-labeled" tag so you can see what the filter catches.
-- **Shorts skipping**: labeled Shorts are skipped automatically.
-- **Fast**: thumbnails are checked as soon as they load, so most answers are
-  ready before you scroll to them.
-- **Any language**: detection uses YouTube's page data, not the label's text.
+- **Removes, doesn't highlight**: members-only videos simply disappear.
+- **Shorts skipping**: members-only Shorts are skipped automatically.
+- **Fast**: cards already showing YouTube's "Members only" badge vanish
+  immediately; the rest are checked as soon as they load.
+- **Any language**: detection uses YouTube's page data, not visible text.
 - **Private**: no accounts, no analytics, no outside servers. See
   [Privacy](#privacy).
 
 ## Install
 
-Install it from the Chrome Web Store, or load it from source:
-
 1. Clone the repository, or download it as a ZIP and unzip it somewhere
-   permanent:
-   ```sh
-   git clone https://github.com/ryanch13579/Anti-YouTube-Slop.git
-   ```
+   permanent.
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and choose the project folder.
 4. Open or refresh YouTube.
-
-It should also work in other Chromium browsers (Edge, Brave, Opera, Vivaldi).
-
-To update, run `git pull`, click the reload arrow on the extension's card in
-`chrome://extensions`, then refresh your YouTube tabs.
 
 ## Usage
 
 Click the toolbar icon to:
 
 - turn the filter on or off
-- choose **Hide** or **Dim and tag them**
-- see how many videos have been checked and how many were labeled
-- see whether the open video or Short has YouTube's label
+- see how many videos have been checked and how many were members-only
+- see whether the open video or Short is members-only
 - see warnings, such as YouTube refusing checks
 - clear the cache with **Clear saved results**
 
 ## How it works
 
-YouTube doesn't show the AI label on thumbnails, only on each video's own
-page. So for each video card, the extension fetches that video's page in the
-background, looks for the label and caches the answer.
+Two layers:
 
-Up to 6 checks run at once. Cards near the screen go first, then the rest of
-the page from top to bottom. Labeled results are kept permanently; unlabeled
-ones are re-checked after 7 days, since YouTube can add a label later.
+1. **Badge on the card.** Where YouTube shows a "Members only" badge on a
+   thumbnail (`.badge-style-type-members-only`), CSS removes the card at once.
+2. **The video's own page.** For every other card, the extension fetches the
+   video's page in the background and looks for either signal:
+   - a `ypc…Renderer` (YouTube's internal name for paid content, the same
+     thing the player's debug info reports as `"prerolls": "ypc"`) inside
+     `playabilityStatus`, which is the "join this channel" offer non-members see;
+   - `BADGE_STYLE_TYPE_MEMBERS_ONLY` inside `videoPrimaryInfoRenderer`, the
+     badge under the title, which members see too.
+
+Up to 6 checks run at once. Cards near the screen go first. Members-only
+results are kept permanently; public ones are re-checked after 7 days.
 
 | File | Role |
 | --- | --- |
 | `manifest.json` | Extension manifest (MV3). |
-| `detect.js` | Finds the label in a page's data by matching the JSON key `"howThisWasMadeSectionViewModel":{`. |
-| `content.js` | Finds video cards, queues and caches checks, marks cards and skips labeled Shorts. |
-| `content.css` | Hides or dims marked cards. |
+| `detect.js` | Finds the members-only signals in a page's data (`CHECKS`). |
+| `content.js` | Finds video cards, queues and caches checks, marks cards and skips members-only Shorts. |
+| `content.css` | Removes marked cards and cards with a members-only badge. |
 | `popup.html` / `popup.js` | The toolbar popup. |
 | `icons/` | Extension icons. |
 
 ## Limitations
 
-- **Only YouTube's own label counts.** AI voiceovers, scripts and stylized or
-  animated AI content are often unlabeled, so they aren't hidden.
-- **First check can flash.** A video stays visible until its first check
-  finishes. Most finish before the card scrolls into view, but on a fast
-  scroll you may see one briefly. Cached videos are hidden immediately.
+- **First check can flash.** A card without a visible badge stays until its
+  check finishes. Cached videos are removed immediately.
+- **Paid content in general.** Other paywalled videos (such as rented
+  movies) use the same `ypc` mechanism and may also be removed.
 - **Rate limits.** If YouTube answers "too many requests", the extension
-  pauses and retries later. Unchecked videos stay visible meanwhile.
-- **Shorts.** A labeled Short may play for a moment the first time it comes
-  up, before it is skipped.
-- **Direct links still play.** A labeled long-form video opened directly still
-  plays. Only its thumbnails are hidden.
+  pauses and retries later.
+- **Direct links still open.** Only thumbnails are removed; members-only
+  Shorts are skipped.
 - **Playlists and mixes** are not filtered.
 
 ## Troubleshooting
 
-YouTube changes its page structure from time to time. If the extension stops
-working:
-
-- **Nothing is flagged.** The label's key has probably been renamed. Open a
-  labeled video, view the page source and search for "Made with AI". Put the
-  key that contains it in `MARKER` at the top of `detect.js`.
-- **Labeled Shorts aren't skipped.** The "next" button has probably changed.
-  Inspect it in the Shorts player and update `shortsNext` in the `CFG` block
-  at the top of `content.js`.
-- **Flagged videos aren't hidden on some page.** The card element has probably
-  changed. Inspect the card and add its tag name to `outerCards` in `CFG`.
-
-When opening an issue, describe the page you were on and what the popup shows.
+- **Nothing is removed.** YouTube has probably renamed a key. Open a
+  members-only video, view the page source and update `CHECKS` in `detect.js`.
+- **Badged cards flash before disappearing.** The badge class has changed;
+  update the selector in `content.css`.
+- **Members-only Shorts aren't skipped.** Update `shortsNext` in the `CFG`
+  block at the top of `content.js`.
 
 ## Privacy
 
-*Last updated 4 October 2026.*
+**What the extension handles:** video links on `youtube.com` pages, each
+video's YouTube page (to check whether it is members-only), a local cache of
+checked video IDs (up to 10,000, about 110 KB), and whether the filter is on.
 
-**What the extension handles**
+**Where it is stored:** only in your browser (`chrome.storage.local`).
+Nothing is sent to the developer or any third party. The only network
+requests go to `youtube.com`.
 
-- **YouTube page content.** On `youtube.com`, it reads the video links on the
-  page and fetches each video's page to check for YouTube's AI label.
-- **A local cache.** The IDs of checked videos, whether each is labeled, and
-  the day each unlabeled one was checked. It holds up to 10,000 videos (about
-  110 KB); past that, the oldest unlabeled results are dropped first.
-- **Your settings.** Whether the filter is on, and whether labeled videos are
-  hidden or dimmed.
+**Permissions:** only `storage`. Content scripts run only on
+`https://www.youtube.com/*`.
 
-**Where it is stored**
-
-Only in your browser (`chrome.storage.local`). Nothing is sent to the
-developer or any third party. The only network requests go to `youtube.com`.
-
-**Permissions**
-
-Only `storage`. Content scripts run only on `https://www.youtube.com/*`.
-
-**What is not collected**
-
-No personal information, analytics or advertising. No data is sold or shared.
-
-**Your control**
-
-**Clear saved results** in the popup clears the cache. Removing the extension
-deletes everything it stored.
-
-**Contact**
-
-Open an issue on this repository.
-
-## Contributing
-
-Issues and pull requests are welcome. There is no build step: edit the files,
-reload the extension in `chrome://extensions` and refresh YouTube to test.
+**Your control:** **Clear saved results** in the popup clears the cache.
+Removing the extension deletes everything it stored.
 
 ## Disclaimer
 
 This project is not affiliated with or endorsed by YouTube or Google.
-=======
-# Hide-YouTuber-Subscriber-only-Video
->>>>>>> e4ba2e6ae80695524e6d8f4d331e70ce244222af
