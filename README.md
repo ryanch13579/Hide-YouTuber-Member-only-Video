@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Hide AI-Labeled Videos
 
 A Chrome extension that hides YouTube videos labeled **"Made with AI"**.
