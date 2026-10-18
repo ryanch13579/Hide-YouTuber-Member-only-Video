@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Hide AI-Labeled Videos
 
 A Chrome extension that hides YouTube videos labeled **"Made with AI"**.
@@ -145,3 +146,6 @@ reload the extension in `chrome://extensions` and refresh YouTube to test.
 ## Disclaimer
 
 This project is not affiliated with or endorsed by YouTube or Google.
+=======
+# Hide-YouTuber-Subscriber-only-Video
+>>>>>>> e4ba2e6ae80695524e6d8f4d331e70ce244222af
