@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Hide Members-Only Videos</title>
+    <title>Hide Paid Videos</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -10,19 +10,45 @@
         --fg: #16181d;
         --muted: #646b78;
         --line: #e4e6eb;
-        --panel: #f5f6f8;
-        --accent: #c8323a;
+        --panel: #ffffff;
+        /* Muted sage green for switches; the cards are neutral greys */
+        --accent: #4f8a6e;
         --accent-fg: #ffffff;
+        /* Red is only for the "Clear saved results" button */
+        --danger: #c8323a;
+        /* Solid cards on a slightly darker page */
+        --page: #e6e8e4;
+        --card: #f3f4f6;
+        --card-line: #d5d9df;
+        /* Counter tiles: inset, for easy-to-read numbers */
+        --tile: #ffffff;
+        --tile-line: #d5d9df;
+        /* Status colours for the "This tab" box */
+        --info: #2f6fdb;
+        --good: #1f9d55;
+        --warn: #c27a00;
+        --alert: #c8323a;
       }
       @media (prefers-color-scheme: dark) {
         :root {
+          --info: #6aa1ff;
+          --good: #4cc38a;
+          --warn: #f5b041;
+          --alert: #ef5a60;
           --bg: #16181d;
           --fg: #eceef2;
           --muted: #9aa1ad;
           --line: #2b2f37;
           --panel: #1f2229;
-          --accent: #ef5a60;
+          --accent: #6fae8f;
           --accent-fg: #16181d;
+          --danger: #d9434b;
+          --page: #141619;
+          --card: #2b2f37;
+          --card-line: #3f454f;
+          --tile: #1c1f25;
+          --tile-line: #3a3f49;
+          --panel: #353a44;
         }
       }
       * {
@@ -30,9 +56,9 @@
       }
       body {
         margin: 0;
-        width: 300px;
-        padding: 16px;
-        background: var(--bg);
+        width: 296px;
+        padding: 10px;
+        background: var(--page);
         color: var(--fg);
         font:
           13px/1.45 system-ui,
@@ -41,8 +67,17 @@
           Roboto,
           sans-serif;
       }
+      .card {
+        padding: 12px;
+        background: var(--card);
+        border: 1px solid var(--card-line);
+        border-radius: 10px;
+      }
+      .card + .card {
+        margin-top: 8px;
+      }
       h1 {
-        margin: 0 0 12px;
+        margin: 0;
         font-size: 14px;
         font-weight: 650;
         letter-spacing: -0.01em;
@@ -96,16 +131,59 @@
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
+      fieldset {
+        border: 0;
+        margin: 0;
+        padding: 0;
+      }
+      fieldset[disabled] {
+        opacity: 0.45;
+      }
+      legend {
+        padding: 0;
+        float: left;
+        width: 100%;
+        margin-bottom: 6px;
+        color: var(--fg);
+        font-size: 14px;
+        font-weight: 650;
+      }
+      .kind {
+        clear: both;
+        padding: 5px 0;
+        cursor: pointer;
+      }
+      .kind small {
+        display: block;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .switch.small {
+        width: 32px;
+        height: 18px;
+      }
+      .switch.small span::after {
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+      }
+      .switch.small input:checked + span::after {
+        transform: translateX(14px);
+      }
       .stats {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
+        display: flex;
+        gap: 6px;
         margin-top: 14px;
       }
       .stat {
-        background: var(--panel);
-        border-radius: 8px;
-        padding: 10px 12px;
+        background: var(--tile);
+        border: 1px solid var(--tile-line);
+        border-radius: 4px;
+        flex: 1 1 0;
+        padding: 10px 4px;
+        min-width: 0;
+        text-align: center;
       }
       .stat b {
         display: block;
@@ -114,13 +192,46 @@
         font-variant-numeric: tabular-nums;
       }
       .stat span {
+        display: block;
         color: var(--muted);
-        font-size: 12px;
+        font-size: 10.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       #page {
+        --tone: var(--info);
         margin-top: 14px;
-        padding-top: 12px;
-        border-top: 1px solid var(--line);
+        padding: 10px 12px;
+        border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
+        border-left: 4px solid var(--tone);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--tone) 12%, transparent);
+      }
+      #page[data-tone="good"] {
+        --tone: var(--good);
+      }
+      #page[data-tone="warn"] {
+        --tone: var(--warn);
+      }
+      #page[data-tone="alert"] {
+        --tone: var(--alert);
+      }
+      #page h2::before {
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin-right: 7px;
+        border-radius: 50%;
+        background: var(--tone);
+        vertical-align: 1px;
+      }
+      #page h2 {
+        color: var(--tone);
+      }
+      #page p:last-child {
+        margin-bottom: 0;
       }
       #page h2 {
         margin: 0 0 4px;
@@ -131,8 +242,8 @@
         margin: 0 0 6px;
       }
       #page-warn {
-        color: var(--accent);
-        text-align: center;
+        color: var(--warn);
+        font-weight: 600;
       }
       footer {
         margin-top: 12px;
@@ -140,6 +251,15 @@
       footer button {
         width: 100%;
         padding: 7px 10px;
+        /* Solid red so it stands out; the only red in the popup */
+        border: 0;
+        border-radius: 4px;
+        background: var(--danger);
+        color: #ffffff;
+        font-weight: 600;
+      }
+      footer button:hover {
+        background: color-mix(in srgb, var(--danger) 85%, #000);
       }
       footer small {
         display: block;
@@ -165,19 +285,34 @@
     </style>
   </head>
   <body>
-    <h1>Hide Members-Only Videos</h1>
-
-    <div class="row">
-      <label for="enabled">Filter YouTube</label>
+    <div class="card header row">
+      <h1>Hide Paid Videos</h1>
       <div class="switch">
-        <input type="checkbox" id="enabled" /><span></span>
+        <input type="checkbox" id="enabled" aria-label="Filter YouTube" title="Turn the filter on or off" /><span></span>
       </div>
     </div>
 
+    <div class="card">
+    <fieldset id="kinds">
+      <legend>What to hide</legend>
+      <label class="row kind">
+        <span>Members-only videos</span>
+        <span class="switch small"
+          ><input type="checkbox" data-kind="members" /><span></span
+        ></span>
+      </label>
+      <label class="row kind">
+        <span>Paid movies &amp; shows</span>
+        <span class="switch small"
+          ><input type="checkbox" data-kind="paid" /><span></span
+        ></span>
+      </label>
+    </fieldset>
 
     <div class="stats">
-      <div class="stat"><b id="mo">0</b><span>members-only videos found</span></div>
-      <div class="stat"><b id="total">0</b><span>videos checked</span></div>
+      <div class="stat" title="Members-only videos found"><b id="members">0</b><span>Members-Only</span></div>
+      <div class="stat" title="Paid movies &amp; shows found"><b id="paid">0</b><span>Paid Movies</span></div>
+      <div class="stat" title="Videos checked"><b id="total">0</b><span>Checked</span></div>
     </div>
 
     <section id="page">
@@ -190,10 +325,10 @@
     <footer>
       <button id="clear">Clear saved results</button>
       <small id="clear-note">
-        Frees the extension's storage.<br>
-        Every video will be checked again.
+        Free the extension's storage, </br> and every video will be checked again.
       </small>
     </footer>
+    </div>
 
     <script src="popup.js"></script>
   </body>

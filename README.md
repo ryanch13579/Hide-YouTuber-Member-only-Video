@@ -1,20 +1,28 @@
-# Hide YouTube Members-Only Videos
+# Hide Paid YouTube Videos
 
-A Chrome extension that removes YouTube's **members-only** videos (the ones
-you have to join a channel to watch).
+A Chrome extension that removes YouTube videos you'd have to **pay** to
+watch:
+
+- **Members-only** videos (join a channel to watch), including "Members
+  first" early access
+- **Movies and shows** to buy or rent
+- **Pay-per-view** events and other paid content
 
 It removes them from the home feed, subscriptions, search results, the
 watch-page sidebar, channel pages and Shorts shelves, and skips them in the
 Shorts player.
 
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue)
-![Version](https://img.shields.io/badge/version-1.0.0-green)
+![Version](https://img.shields.io/badge/version-1.1.0-green)
 
 ## Features
 
-- **Removes, doesn't highlight**: members-only videos simply disappear.
-- **Shorts skipping**: members-only Shorts are skipped automatically.
-- **Fast**: cards already showing YouTube's "Members only" badge vanish
+- **You choose what to hide**: members-only videos and paid movies & shows
+  each have their own switch.
+- **Removes, doesn't highlight**: hidden videos simply disappear, and the
+  videos around them close up so there are no gaps.
+- **Shorts skipping**: paid Shorts are skipped automatically.
+- **Fast**: cards already showing a "Members only" or price badge vanish
   immediately; the rest are checked as soon as they load.
 - **Any language**: detection uses YouTube's page data, not visible text.
 - **Private**: no accounts, no analytics, no outside servers. See
@@ -28,68 +36,91 @@ Shorts player.
 3. Click **Load unpacked** and choose the project folder.
 4. Open or refresh YouTube.
 
+After editing any file, click the reload arrow ↻ on the extension's card in
+`chrome://extensions`, then refresh YouTube. (Changes to the popup only need
+the reload.)
+
 ## Usage
 
-Click the toolbar icon to:
+Click the toolbar icon to open the popup:
 
-- turn the filter on or off
-- see how many videos have been checked and how many were members-only
-- see whether the open video or Short is members-only
-- see warnings, such as YouTube refusing checks
-- clear the cache with **Clear saved results**
+| Part | What it does |
+| --- | --- |
+| Switch next to **Hide Paid Videos** | Turns the whole filter on or off. |
+| **What to hide** | A switch each for **Members-only videos** and **Paid movies & shows**. Changes apply instantly, no refresh needed. |
+| Counters | How many members-only and paid videos were found, and how many videos were checked. A counter is hidden while its kind is switched off. |
+| **This tab** box | Whether the open video or Short is members-only, paid or free, colour-coded: red (hidden), green (free), blue (checking), amber (a problem, such as YouTube refusing checks). Shown only when there's something to report. |
+| **Clear saved results** | Clears the cache so every video is checked again. |
 
 ## How it works
 
-Two layers:
+"ypc" is YouTube's internal name for all paid content: memberships, movie
+purchases and rentals, pay-per-view. It is the same thing the player's debug
+info reports as `"prerolls": "ypc"`. The extension looks for it in two layers:
 
-1. **Badge on the card.** Where YouTube shows a "Members only" badge on a
-   thumbnail (`.badge-style-type-members-only`), CSS removes the card at once.
+1. **Badge on the card.** Where a thumbnail shows a "Members only" badge
+   (`.badge-style-type-members-only`) or a price / "Buy or rent" badge
+   (`.badge-style-type-ypc`), CSS removes the card at once.
 2. **The video's own page.** For every other card, the extension fetches the
-   video's page in the background and looks for either signal:
-   - a `ypc…Renderer` (YouTube's internal name for paid content, the same
-     thing the player's debug info reports as `"prerolls": "ypc"`) inside
-     `playabilityStatus`, which is the "join this channel" offer non-members see;
-   - `BADGE_STYLE_TYPE_MEMBERS_ONLY` inside `videoPrimaryInfoRenderer`, the
-     badge under the title, which members see too.
+   video's page in the background and looks for:
+   - a `ypc…Renderer` inside `playabilityStatus`: the "join this channel" or
+     "buy or rent" offer shown to anyone who hasn't paid;
+   - a `BADGE_STYLE_TYPE_MEMBERS_…` badge (members only, members first)
+     inside `videoPrimaryInfoRenderer`: the badge under the title, which
+     members see too.
 
-Up to 6 checks run at once. Cards near the screen go first. Members-only
-results are kept permanently; public ones are re-checked after 7 days.
+Each paid video is then sorted into one of the two kinds the popup lets you
+switch:
+
+| Kind | How it's recognised |
+| --- | --- |
+| **Members-only** | Has the members badge under the title. |
+| **Paid movies & shows** | Has a paid offer but no members badge, e.g. a `ypcTrailerRenderer` (movie trailer + buy/rent) or a pay-per-view offer. |
+
+Up to 6 checks run at once. Cards near the screen go first. Paid results are
+kept permanently, along with their kind; free ones are re-checked after 7
+days, since a video can be put behind a paywall later.
 
 | File | Role |
 | --- | --- |
 | `manifest.json` | Extension manifest (MV3). |
-| `detect.js` | Finds the members-only signals in a page's data (`CHECKS`). |
-| `content.js` | Finds video cards, queues and caches checks, marks cards and skips members-only Shorts. |
-| `content.css` | Removes marked cards and cards with a members-only badge. |
-| `popup.html` / `popup.js` | The toolbar popup. |
-| `icons/` | Extension icons. |
+| `detect.js` | Finds the paid-content signals in a page's data (`CHECKS`). |
+| `content.js` | Finds video cards, queues and caches checks, marks cards and skips paid Shorts. |
+| `content.css` | Removes marked cards and cards with a paid badge (per kind), and closes the gaps in grids. |
+| `popup.html` / `popup.js` | The toolbar popup. Colours are CSS variables at the top of `popup.html`. |
+| `icons/` | Extension icons: a play button with a "no $" badge (16 px is a simplified "no $" sign). |
 
 ## Limitations
 
 - **First check can flash.** A card without a visible badge stays until its
   check finishes. Cached videos are removed immediately.
-- **Paid content in general.** Other paywalled videos (such as rented
-  movies) use the same `ypc` mechanism and may also be removed.
+- **Movies you already bought** may still be hidden in feeds, if their card
+  shows a paid badge.
+- **YouTube Premium-only content** (such as some YouTube Originals) uses a
+  different mechanism and is not filtered.
+- **Ads and sponsored segments** aren't paywalls, so they aren't touched.
 - **Rate limits.** If YouTube answers "too many requests", the extension
   pauses and retries later.
-- **Direct links still open.** Only thumbnails are removed; members-only
-  Shorts are skipped.
+- **Direct links still open.** Only thumbnails are removed; paid Shorts are
+  skipped.
 - **Playlists and mixes** are not filtered.
 
 ## Troubleshooting
 
-- **Nothing is removed.** YouTube has probably renamed a key. Open a
-  members-only video, view the page source and update `CHECKS` in `detect.js`.
+- **Nothing is removed.** YouTube has probably renamed a key. Open a paid
+  video, view the page source and update `CHECKS` in `detect.js`.
 - **Badged cards flash before disappearing.** The badge class has changed;
   update the selector in `content.css`.
-- **Members-only Shorts aren't skipped.** Update `shortsNext` in the `CFG`
-  block at the top of `content.js`.
+- **Movie cards aren't removed on some page.** Inspect the card and add its
+  tag name to `outerCards` in the `CFG` block at the top of `content.js`.
+- **Paid Shorts aren't skipped.** Update `shortsNext` in `CFG`.
 
 ## Privacy
 
 **What the extension handles:** video links on `youtube.com` pages, each
-video's YouTube page (to check whether it is members-only), a local cache of
-checked video IDs (up to 10,000, about 110 KB), and whether the filter is on.
+video's YouTube page (to check whether it is paid), a local cache of checked
+video IDs and their kind (up to 10,000, about 110 KB), and your settings
+(whether the filter is on, and which kinds to hide).
 
 **Where it is stored:** only in your browser (`chrome.storage.local`).
 Nothing is sent to the developer or any third party. The only network

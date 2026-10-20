@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Hide YouTube Members-Only Videos",
-  "version": "1.0.0",
-  "description": "Removes members-only videos from YouTube feeds, search and the sidebar, and skips them in the Shorts player.",
+  "name": "Hide Paid YouTube Videos",
+  "version": "1.1.0",
+  "description": "Removes paywalled YouTube videos (members-only, movies to buy or rent, pay-per-view) from feeds, search and the sidebar, and skips them in Shorts.",
   "permissions": ["storage"],
   "icons": {
     "16": "icons/icon16.png",
@@ -10,7 +10,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Hide Members-Only Videos",
+    "default_title": "Hide Paid Videos",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

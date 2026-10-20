@@ -1,13 +1,14 @@
 /*
  * Content script: finds video cards on YouTube pages, looks up whether each
- * video is members-only, remembers the answer, and removes the ones that
- * are. In the Shorts player it skips members-only Shorts instead.
+ * video is behind a paywall (members-only, or a paid movie or rental),
+ * remembers the answer, and removes the ones that are. In the Shorts player
+ * it skips paid Shorts instead.
  */
 (() => {
   "use strict";
   if (window.top !== window) return;
 
-  const detect = globalThis.HMO_DETECT;
+  const detect = globalThis.HPW_DETECT;
   const DAY = 864e5;
 
   // ---- Everything YouTube-specific that may need updating lives here -------
@@ -21,6 +22,9 @@
       "ytd-compact-video-renderer", // watch-page sidebar (older layout)
       "ytd-grid-video-renderer", // channel grids (older layout)
       "ytd-reel-item-renderer", // Shorts shelves (older layout)
+      "ytd-movie-renderer", // movies in search results
+      "ytd-grid-movie-renderer", // movie shelves
+      "ytd-compact-movie-renderer", // movies in the watch-page sidebar
     ].join(","),
     innerCards: [
       "yt-lockup-view-model", // watch-page sidebar and newer grids
@@ -32,7 +36,7 @@
     maxConcurrent: 6, // each lookup takes ~1s, mostly YouTube's server time
     lookAhead: "800px 0px", // cards this far outside the viewport are checked first
     scanDelay: 200,
-    recheckDays: 7, // public videos only; a video can be made members-only later
+    recheckDays: 7, // free videos only; a video can be put behind a paywall later
     maxCached: 10000, // 11 bytes each, so storage stays around 110 KB
     maxAttempts: 3,
     skipDelay: 1200,
@@ -40,16 +44,18 @@
   };
   // --------------------------------------------------------------------------
 
-  const DEFAULTS = { enabled: true };
+  // The kinds of paid content detect.js reports. Each can be hidden or not.
+  const KINDS = ["members", "paid"];
+  const DEFAULTS = { enabled: true, members: true, paid: true };
   const ID_RE = /^[\w-]{11}$/;
   const html = document.documentElement;
-  // Bump whenever detect.js changes what counts as members-only.
-  const RULES = 1;
+  // Bump whenever detect.js changes what counts as paid.
+  const RULES = 3;
 
   let settings = { ...DEFAULTS };
   let alive = true; // false once the extension is reloaded or removed
 
-  const verdicts = new Map(); // videoId -> true (members-only) | day checked, oldest first
+  const verdicts = new Map(); // videoId -> kind ("members" | "paid") | day found free, oldest first
   const paths = new Map(); // videoId -> same-origin path to fetch
   const attempts = new Map(); // videoId -> failed lookups
   const visible = new WeakSet(); // cards near the viewport
@@ -79,8 +85,12 @@
 
   const withDefaults = (stored) => ({ ...DEFAULTS, ...stored });
 
+  // content.css hides each kind only while its class is on the page.
+  const hiding = (kind) => settings.enabled && settings[kind];
+
   function applyMode() {
-    html.classList.toggle("hmo-hide", settings.enabled);
+    html.classList.toggle("hpw-hide", settings.enabled);
+    for (const kind of KINDS) html.classList.toggle("hpw-" + kind, hiding(kind));
   }
   applyMode(); // hide by default before settings have loaded
 
@@ -97,19 +107,20 @@
 
   // ---- Verdict cache --------------------------------------------------------
 
-  // Members-only answers are kept for good. Public ones are checked again
-  // after CFG.recheckDays, since a creator can restrict a video later. In
-  // memory each video maps to true (members-only) or the day it was found
-  // public. Storage holds back-to-back 11-character ids, oldest first:
-  //   { mo: "id1id2…", ok: { "<day>": "id3id4…", … } }
+  // Paid answers are kept for good. Free ones are checked again after
+  // CFG.recheckDays, since a video can be put behind a paywall later. In
+  // memory each video maps to its kind ("members" | "paid") or the day it
+  // was found free. Storage holds back-to-back 11-character ids, oldest first:
+  //   { members: "id1…", paid: "id2…", ok: { "<day>": "id3id4…", … } }
   const today = () => Math.floor(Date.now() / DAY);
-  const isFresh = (v) => v === true || today() - v < CFG.recheckDays;
-  const stateOf = (mo) => (mo ? "mo" : "ok");
+  const isPaid = (v) => typeof v === "string";
+  const isFresh = (v) => isPaid(v) || today() - v < CFG.recheckDays;
+  const stateOf = (kind) => kind || "ok";
 
-  /** true (members-only), false (public), or undefined (unchecked or due a re-check). */
+  /** A kind ("members" | "paid"), false (free), or undefined (unchecked or due a re-check). */
   function known(id) {
     const v = verdicts.get(id);
-    return v !== undefined && isFresh(v) ? v === true : undefined;
+    return v !== undefined && isFresh(v) ? isPaid(v) && v : undefined;
   }
 
   function* idsIn(ids) {
@@ -118,19 +129,21 @@
 
   /** Stored verdicts as [id, value] pairs, oldest first. */
   function decode(stored) {
-    if (!stored || typeof stored.mo !== "string") return [];
+    if (!stored) return [];
     const out = [];
     // Integer keys come out in ascending order, so oldest day first.
     if (stored.ok && typeof stored.ok === "object")
       for (const [day, ids] of Object.entries(stored.ok))
         for (const id of idsIn(ids)) out.push([id, +day]);
-    for (const id of idsIn(stored.mo)) out.push([id, true]);
+    for (const kind of KINDS)
+      if (typeof stored[kind] === "string")
+        for (const id of idsIn(stored[kind])) out.push([id, kind]);
     return out;
   }
 
-  // Members-only beats public, and a later check beats an earlier one.
+  // Paid beats free, and a later check beats an earlier one.
   const isNewer = (a, b) =>
-    b === undefined || (a !== b && (a === true || (b !== true && a > b)));
+    b === undefined || (a !== b && (isPaid(a) || (!isPaid(b) && a > b)));
 
   function remember(id, v) {
     verdicts.delete(id); // re-insert so the map stays oldest first
@@ -155,26 +168,25 @@
   function saveNow() {
     clearTimeout(saveTimer);
     saveTimer = 0;
-    // Public answers due a re-check aren't worth keeping. Over the cap,
-    // forget the oldest public ones next, since losing one only costs a
-    // re-check, then the oldest members-only ones.
+    // Free answers due a re-check aren't worth keeping. Over the cap,
+    // forget the oldest free ones next, since losing one only costs a
+    // re-check, then the oldest paid ones.
     for (const [id, v] of verdicts) if (!isFresh(v)) verdicts.delete(id);
     let excess = verdicts.size - CFG.maxCached;
     for (const restricted of [false, true]) {
       for (const [id, v] of verdicts) {
         if (excess <= 0) break;
-        if ((v === true) !== restricted) continue;
+        if (isPaid(v) !== restricted) continue;
         verdicts.delete(id);
         excess--;
       }
     }
-    let mo = "";
-    const ok = {};
+    const out = { members: "", paid: "", ok: {} };
     for (const [id, v] of verdicts) {
-      if (v === true) mo += id;
-      else ok[v] = (ok[v] || "") + id;
+      if (isPaid(v)) out[v] += id;
+      else out.ok[v] = (out.ok[v] || "") + id;
     }
-    safeChrome(() => chrome.storage.local.set({ verdicts: { mo, ok } }));
+    safeChrome(() => chrome.storage.local.set({ verdicts: out }));
   }
 
   // ---- Video URLs -----------------------------------------------------------
@@ -213,7 +225,7 @@
 
   const cardFor = (link) =>
     link.closest(CFG.outerCards) || link.closest(CFG.innerCards);
-  const pendingCards = () => document.querySelectorAll('[data-hmo="pending"]');
+  const pendingCards = () => document.querySelectorAll('[data-hpw="pending"]');
 
   const viewport = new IntersectionObserver(
     (entries) => {
@@ -223,7 +235,7 @@
           continue;
         }
         visible.add(card);
-        if (card.dataset.hmo === "pending") enqueue(card.dataset.hmoId, true);
+        if (card.dataset.hpw === "pending") enqueue(card.dataset.hpwId, true);
       }
     },
     { rootMargin: CFG.lookAhead },
@@ -251,8 +263,8 @@
       seen.add(card);
       // YouTube recycles card elements for different videos, so re-read the
       // id on every scan and reset the card when it changes.
-      if (card.dataset.hmoId === ref.id) continue;
-      card.dataset.hmoId = ref.id;
+      if (card.dataset.hpwId === ref.id) continue;
+      card.dataset.hpwId = ref.id;
       rememberPath(ref);
       viewport.observe(card);
       resolve(card, ref.id);
@@ -262,30 +274,30 @@
 
   function resolve(card, id) {
     const v = known(id);
-    card.dataset.hmo = v === undefined ? "pending" : stateOf(v);
+    card.dataset.hpw = v === undefined ? "pending" : stateOf(v);
     if (v === undefined) enqueue(id, visible.has(card));
   }
 
   function paint(id) {
     const v = known(id);
     if (v === undefined) return;
-    for (const card of document.querySelectorAll(`[data-hmo-id="${id}"]`))
-      card.dataset.hmo = stateOf(v);
+    for (const card of document.querySelectorAll(`[data-hpw-id="${id}"]`))
+      card.dataset.hpw = stateOf(v);
   }
 
   function resetCards() {
     scannedHref = new WeakMap();
-    for (const card of document.querySelectorAll("[data-hmo-id]")) {
-      delete card.dataset.hmoId;
-      delete card.dataset.hmo;
+    for (const card of document.querySelectorAll("[data-hpw-id]")) {
+      delete card.dataset.hpwId;
+      delete card.dataset.hpw;
     }
   }
 
   // ---- The video that is open right now -------------------------------------
 
-  // A watch page is only reported in the popup. In the Shorts player a
-  // members-only Short is skipped, since Shorts there are fed one after
-  // another rather than chosen from thumbnails.
+  // A watch page is only reported in the popup. In the Shorts player a paid
+  // Short is skipped, since Shorts there are fed one after another rather
+  // than chosen from thumbnails.
   function checkOpenVideo() {
     const cur = openVideo();
     if (!cur || !settings.enabled) return banner(null);
@@ -297,7 +309,7 @@
       enqueue(cur.id, true);
       return;
     }
-    if (cur.kind !== "shorts" || !v) return banner(null);
+    if (cur.kind !== "shorts" || !v || !hiding(v)) return banner(null);
     skipShort(cur.id);
   }
 
@@ -308,7 +320,7 @@
     if (skipping.tries >= CFG.maxSkipTries) {
       skipping.stuck = true;
       stats.skipStuck++;
-      banner("Members-only Short – could not skip automatically");
+      banner("Paid Short – could not skip automatically");
       return;
     }
     skipping.at = now;
@@ -343,7 +355,7 @@
       return;
     }
     bannerEl ??= Object.assign(document.createElement("div"), {
-      id: "hmo-banner",
+      id: "hpw-banner",
     });
     if (bannerEl.textContent !== text) bannerEl.textContent = text;
     if (!bannerEl.isConnected && document.body) document.body.append(bannerEl);
@@ -383,7 +395,7 @@
       const id = queue.length ? queue.pop() : backlog.shift();
       const stillNeeded =
         wanted.has(id) ||
-        document.querySelector(`[data-hmo-id="${id}"][data-hmo="pending"]`);
+        document.querySelector(`[data-hpw-id="${id}"][data-hpw="pending"]`);
       if (!stillNeeded) {
         queued.delete(id);
         continue;
@@ -397,8 +409,8 @@
     }
   }
 
-  // Resolves to { verdict, problem, backOff }. verdict is a boolean only when
-  // the page gave a definite answer.
+  // Resolves to { verdict, problem, backOff }. verdict is "members", "paid" or
+  // false only when the page gave a definite answer.
   async function lookup(id) {
     try {
       const res = await fetch(paths.get(id) || "/watch?v=" + id, {
@@ -424,7 +436,7 @@
     const { verdict, problem, backOff } = await lookup(id);
     wanted.delete(id);
 
-    if (typeof verdict === "boolean") {
+    if (verdict !== undefined) {
       failures = 0;
       stats.answered++;
       attempts.delete(id);
@@ -451,7 +463,7 @@
 
   function retryPending() {
     for (const card of pendingCards()) {
-      enqueue(card.dataset.hmoId, visible.has(card));
+      enqueue(card.dataset.hpwId, visible.has(card));
     }
     checkOpenVideo();
     pump();
@@ -480,15 +492,13 @@
         ? queued.has(cur.id)
           ? "checking"
           : "unknown"
-        : v
-          ? "members-only"
-          : "public";
+        : v || "free";
     return { kind: cur.kind, id: cur.id, label };
   }
 
   function report() {
     const cards = new Set();
-    const states = { mo: 0, ok: 0, pending: 0 };
+    const states = { members: 0, paid: 0, ok: 0, pending: 0 };
     const cardTags = {};
     const strayExamples = [];
     let strayLinks = 0;
@@ -508,7 +518,7 @@
       if (cards.has(card)) continue;
       cards.add(card);
       cardTags[card.localName] = (cardTags[card.localName] || 0) + 1;
-      if (card.dataset.hmo in states) states[card.dataset.hmo]++;
+      if (card.dataset.hpw in states) states[card.dataset.hpw]++;
     }
 
     let version = "";
@@ -520,6 +530,7 @@
       version,
       page: location.pathname,
       enabled: settings.enabled,
+      hiding: { members: hiding("members"), paid: hiding("paid") },
       cards: cards.size,
       states,
       cardTags,
@@ -566,7 +577,7 @@
         // Answers found in other tabs. Our own saves land here too and
         // change nothing, so skip the card pass for those.
         if (merge(changes.verdicts.newValue))
-          for (const card of pendingCards()) resolve(card, card.dataset.hmoId);
+          for (const card of pendingCards()) resolve(card, card.dataset.hpwId);
       } else {
         // "Clear saved results" was pressed in the popup.
         verdicts.clear();
@@ -584,7 +595,7 @@
       if (got.rules === RULES) {
         merge(got.verdicts);
       } else {
-        chrome.storage.local.set({ rules: RULES, verdicts: { mo: "", ok: {} } });
+        chrome.storage.local.set({ rules: RULES, verdicts: { members: "", paid: "", ok: {} } });
       }
       applyMode();
       scan();
@@ -594,7 +605,7 @@
   try {
     chrome.storage.onChanged.addListener(onStorageChanged);
     chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-      if (msg?.type === "hmo-report") reply(report());
+      if (msg?.type === "hpw-report") reply(report());
     });
   } catch {
     alive = false;
