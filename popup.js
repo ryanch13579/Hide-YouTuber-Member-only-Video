@@ -7,6 +7,22 @@ const kindBoxes = document.querySelectorAll('input[data-kind]');
 
 let settings = { ...DEFAULTS };
 
+// At fractional display scaling Chrome rounds the popup window and the page
+// differently, leaving a see-through seam on the right and bottom. Nudge each
+// size up by at most 8px to the one closest to a whole number of screen pixels.
+function snapSize(px) {
+  let best = Math.ceil(px), bestOff = 1;
+  for (let n = best; n <= Math.ceil(px) + 8; n++) {
+    const off = Math.abs(n * devicePixelRatio - Math.round(n * devicePixelRatio));
+    if (off < bestOff - 0.001) [best, bestOff] = [n, off];
+  }
+  return best + 'px';
+}
+document.body.style.width = snapSize(296);
+new ResizeObserver(() => {
+  document.documentElement.style.height = snapSize(document.body.getBoundingClientRect().height);
+}).observe(document.body);
+
 function renderSettings() {
   $('enabled').checked = settings.enabled;
   $('kinds').disabled = !settings.enabled;

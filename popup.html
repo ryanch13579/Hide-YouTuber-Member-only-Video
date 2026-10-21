@@ -6,13 +6,10 @@
     <style>
       :root {
         color-scheme: light dark;
-        --bg: #ffffff;
         --fg: #16181d;
         --muted: #646b78;
         --line: #e4e6eb;
-        --panel: #ffffff;
         --accent: #4f8a6e;
-        --accent-fg: #ffffff;
         /* Red is only for the "Clear saved results" button */
         --danger: #c8323a;
         --page: #e6e8e4;
@@ -31,30 +28,28 @@
           --good: #4cc38a;
           --warn: #f5b041;
           --alert: #ef5a60;
-          --bg: #16181d;
           --fg: #eceef2;
           --muted: #9aa1ad;
           --line: #2b2f37;
-          --panel: #1f2229;
           --accent: #6fae8f;
-          --accent-fg: #16181d;
           --danger: #d9434b;
-          --page: #141619;
+          --page: #22252b;
           --card: #2b2f37;
           --card-line: #3f454f;
           --tile: #1c1f25;
           --tile-line: #3a3f49;
-          --panel: #353a44;
         }
       }
       * {
         box-sizing: border-box;
       }
+      html {
+        background: var(--page);
+      }
       body {
         margin: 0;
         width: 296px;
         padding: 10px;
-        background: var(--page);
         color: var(--fg);
         font:
           13px/1.45 system-ui,
@@ -140,7 +135,6 @@
         float: left;
         width: 100%;
         margin-bottom: 6px;
-        color: var(--fg);
         font-size: 14px;
         font-weight: 650;
       }
@@ -148,11 +142,6 @@
         clear: both;
         padding: 5px 0;
         cursor: pointer;
-      }
-      .kind small {
-        display: block;
-        color: var(--muted);
-        font-size: 11.5px;
       }
       .switch.small {
         width: 32px;
@@ -199,10 +188,10 @@
         --tone: var(--info);
         margin-top: 14px;
         padding: 10px 12px;
-        border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
+        border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--card));
         border-left: 4px solid var(--tone);
         border-radius: 8px;
-        background: color-mix(in srgb, var(--tone) 12%, transparent);
+        background: color-mix(in srgb, var(--tone) 12%, var(--card));
       }
       #page[data-tone="good"] {
         --tone: var(--good);
@@ -224,18 +213,16 @@
         vertical-align: 1px;
       }
       #page h2 {
-        color: var(--tone);
-      }
-      #page p:last-child {
-        margin-bottom: 0;
-      }
-      #page h2 {
         margin: 0 0 4px;
+        color: var(--tone);
         font-size: 13px;
         font-weight: 650;
       }
       #page p {
         margin: 0 0 6px;
+      }
+      #page p:last-child {
+        margin-bottom: 0;
       }
       #page-warn {
         color: var(--warn);
@@ -251,7 +238,10 @@
         border-radius: 4px;
         background: var(--danger);
         color: #ffffff;
+        font: inherit;
+        font-size: 12px;
         font-weight: 600;
+        cursor: pointer;
       }
       footer button:hover {
         background: color-mix(in srgb, var(--danger) 85%, #000);
@@ -263,24 +253,10 @@
         font-size: 11px;
         text-align: center;
       }
-      button {
-        flex: none;
-        border: 1px solid var(--line);
-        background: transparent;
-        color: var(--fg);
-        border-radius: 6px;
-        padding: 5px 10px;
-        font: inherit;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      button:hover {
-        background: var(--panel);
-      }
     </style>
   </head>
   <body>
-    <div class="card header row">
+    <div class="card row">
       <h1>Hide Paid Videos</h1>
       <div class="switch">
         <input type="checkbox" id="enabled" aria-label="Filter YouTube" title="Turn the filter on or off" /><span></span>
@@ -288,41 +264,39 @@
     </div>
 
     <div class="card">
-    <fieldset id="kinds">
-      <legend>What to hide</legend>
-      <label class="row kind">
-        <span>Members-only videos</span>
-        <span class="switch small"
-          ><input type="checkbox" data-kind="members" /><span></span
-        ></span>
-      </label>
-      <label class="row kind">
-        <span>Paid movies &amp; shows</span>
-        <span class="switch small"
-          ><input type="checkbox" data-kind="paid" /><span></span
-        ></span>
-      </label>
-    </fieldset>
+      <fieldset id="kinds">
+        <legend>What to hide</legend>
+        <label class="row kind">
+          <span>Members-only videos</span>
+          <span class="switch small"
+            ><input type="checkbox" data-kind="members" /><span></span
+          ></span>
+        </label>
+        <label class="row kind">
+          <span>Paid movies &amp; shows</span>
+          <span class="switch small"
+            ><input type="checkbox" data-kind="paid" /><span></span
+          ></span>
+        </label>
+      </fieldset>
 
-    <div class="stats">
-      <div class="stat" title="Members-only videos found"><b id="members">0</b><span>Members-Only</span></div>
-      <div class="stat" title="Paid movies &amp; shows found"><b id="paid">0</b><span>Paid Movies</span></div>
-      <div class="stat" title="Videos checked"><b id="total">0</b><span>Checked</span></div>
-    </div>
+      <div class="stats">
+        <div class="stat" title="Members-only videos found"><b id="members">0</b><span>Members-Only</span></div>
+        <div class="stat" title="Paid movies &amp; shows found"><b id="paid">0</b><span>Paid Movies</span></div>
+        <div class="stat" title="Videos checked"><b id="total">0</b><span>Checked</span></div>
+      </div>
 
-    <section id="page">
-      <h2 id="page-title">This tab</h2>
-      <p id="page-video" hidden></p>
-      <p id="page-main">Checking…</p>
-      <p id="page-warn" hidden></p>
-    </section>
+      <section id="page">
+        <h2 id="page-title">This tab</h2>
+        <p id="page-video" hidden></p>
+        <p id="page-main">Checking…</p>
+        <p id="page-warn" hidden></p>
+      </section>
 
-    <footer>
-      <button id="clear">Clear saved results</button>
-      <small id="clear-note">
-        Free the extension's storage, </br> and every video will be checked again.
-      </small>
-    </footer>
+      <footer>
+        <button id="clear">Clear saved results</button>
+        <small>Free the extension's storage,<br />and every video will be checked again.</small>
+      </footer>
     </div>
 
     <script src="popup.js"></script>
