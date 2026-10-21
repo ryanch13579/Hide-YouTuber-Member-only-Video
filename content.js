@@ -1,9 +1,5 @@
-/*
- * Content script: finds video cards on YouTube pages, looks up whether each
- * video is behind a paywall (members-only, or a paid movie or rental),
- * remembers the answer, and removes the ones that are. In the Shorts player
- * it skips paid Shorts instead.
- */
+// Finds video cards on YouTube, checks whether each video is paid, and hides
+// the paid ones (or skips them in the Shorts player).
 (() => {
   "use strict";
   if (window.top !== window) return;
@@ -11,59 +7,55 @@
   const detect = globalThis.HPW_DETECT;
   const DAY = 864e5;
 
-  // ---- Everything YouTube-specific that may need updating lives here -------
+  // Everything YouTube-specific that may need updating lives here.
   const CFG = {
     links: 'a[href*="/watch?v="], a[href*="/shorts/"]',
-    // Outer containers are tried first so the whole grid cell disappears;
-    // inner ones are the fallback.
     outerCards: [
-      "ytd-rich-item-renderer", // home, subscriptions, channel grids, Shorts shelves
-      "ytd-video-renderer", // search results
-      "ytd-compact-video-renderer", // watch-page sidebar (older layout)
-      "ytd-grid-video-renderer", // channel grids (older layout)
-      "ytd-reel-item-renderer", // Shorts shelves (older layout)
-      "ytd-movie-renderer", // movies in search results
-      "ytd-grid-movie-renderer", // movie shelves
-      "ytd-compact-movie-renderer", // movies in the watch-page sidebar
+      "ytd-rich-item-renderer",
+      "ytd-video-renderer",
+      "ytd-compact-video-renderer",
+      "ytd-grid-video-renderer",
+      "ytd-reel-item-renderer",
+      "ytd-movie-renderer",
+      "ytd-grid-movie-renderer",
+      "ytd-compact-movie-renderer",
     ].join(","),
     innerCards: [
-      "yt-lockup-view-model", // watch-page sidebar and newer grids
+      "yt-lockup-view-model",
       "ytm-shorts-lockup-view-model-v2",
       "ytm-shorts-lockup-view-model",
     ].join(","),
     shortsNext:
       '#navigation-button-down button, button[aria-label="Next video"]',
-    maxConcurrent: 6, // each lookup takes ~1s, mostly YouTube's server time
-    lookAhead: "800px 0px", // cards this far outside the viewport are checked first
+    maxConcurrent: 6,
+    lookAhead: "800px 0px",
     scanDelay: 200,
-    recheckDays: 7, // free videos only; a video can be put behind a paywall later
-    maxCached: 10000, // 11 bytes each, so storage stays around 110 KB
+    recheckDays: 7,
+    maxCached: 10000,
     maxAttempts: 3,
     skipDelay: 1200,
     maxSkipTries: 3,
   };
-  // --------------------------------------------------------------------------
 
-  // The kinds of paid content detect.js reports. Each can be hidden or not.
   const KINDS = ["members", "paid"];
   const DEFAULTS = { enabled: true, members: true, paid: true };
   const ID_RE = /^[\w-]{11}$/;
   const html = document.documentElement;
-  // Bump whenever detect.js changes what counts as paid.
+  // Bump whenever detect.js changes; answers saved under older rules are discarded.
   const RULES = 3;
 
   let settings = { ...DEFAULTS };
-  let alive = true; // false once the extension is reloaded or removed
+  let alive = true;
 
-  const verdicts = new Map(); // videoId -> kind ("members" | "paid") | day found free, oldest first
-  const paths = new Map(); // videoId -> same-origin path to fetch
-  const attempts = new Map(); // videoId -> failed lookups
-  const visible = new WeakSet(); // cards near the viewport
-  let scannedHref = new WeakMap(); // link -> href it had when last scanned
-  const queue = []; // videoIds near the viewport; newest is taken first
-  const backlog = []; // videoIds further away; top of the page is taken first
-  const queued = new Set(); // waiting or in flight
-  const wanted = new Set(); // ids to look up without a card (the open video)
+  const verdicts = new Map();
+  const paths = new Map();
+  const attempts = new Map();
+  const visible = new WeakSet();
+  let scannedHref = new WeakMap();
+  const queue = [];
+  const backlog = [];
+  const queued = new Set();
+  const wanted = new Set();
   const stats = {
     answered: 0,
     failed: 0,
@@ -81,20 +73,16 @@
   let skipping = { id: "", tries: 0, at: 0, stuck: false };
   let bannerEl = null;
 
-  // ---- Settings -------------------------------------------------------------
-
   const withDefaults = (stored) => ({ ...DEFAULTS, ...stored });
 
-  // content.css hides each kind only while its class is on the page.
   const hiding = (kind) => settings.enabled && settings[kind];
 
   function applyMode() {
     html.classList.toggle("hpw-hide", settings.enabled);
     for (const kind of KINDS) html.classList.toggle("hpw-" + kind, hiding(kind));
   }
-  applyMode(); // hide by default before settings have loaded
+  applyMode();
 
-  // chrome.* calls throw once the extension has been reloaded; go quiet then.
   function safeChrome(fn) {
     if (!alive) return Promise.resolve();
     try {
@@ -105,20 +93,15 @@
     }
   }
 
-  // ---- Verdict cache --------------------------------------------------------
-
-  // Paid answers are kept for good. Free ones are checked again after
-  // CFG.recheckDays, since a video can be put behind a paywall later. In
-  // memory each video maps to its kind ("members" | "paid") or the day it
-  // was found free. Storage holds back-to-back 11-character ids, oldest first:
-  //   { members: "id1…", paid: "id2…", ok: { "<day>": "id3id4…", … } }
+  // Cache: a paid video maps to its kind and is kept for good; a free one maps to
+  // the day it was checked and is re-checked after CFG.recheckDays. Stored as
+  // back-to-back 11-character ids: { members: "…", paid: "…", ok: { "<day>": "…" } }
   const today = () => Math.floor(Date.now() / DAY);
   const isPaid = (v) => typeof v === "string";
   const isFresh = (v) => isPaid(v) || today() - v < CFG.recheckDays;
   const stateOf = (kind) => kind || "ok";
 
-  /** A kind ("members" | "paid"), false (free), or undefined (unchecked or due a re-check). */
-  function known(id) {
+    function known(id) {
     const v = verdicts.get(id);
     return v !== undefined && isFresh(v) ? isPaid(v) && v : undefined;
   }
@@ -127,11 +110,9 @@
     for (let i = 0; i + 11 <= ids.length; i += 11) yield ids.slice(i, i + 11);
   }
 
-  /** Stored verdicts as [id, value] pairs, oldest first. */
-  function decode(stored) {
+    function decode(stored) {
     if (!stored) return [];
     const out = [];
-    // Integer keys come out in ascending order, so oldest day first.
     if (stored.ok && typeof stored.ok === "object")
       for (const [day, ids] of Object.entries(stored.ok))
         for (const id of idsIn(ids)) out.push([id, +day]);
@@ -141,17 +122,15 @@
     return out;
   }
 
-  // Paid beats free, and a later check beats an earlier one.
   const isNewer = (a, b) =>
     b === undefined || (a !== b && (isPaid(a) || (!isPaid(b) && a > b)));
 
   function remember(id, v) {
-    verdicts.delete(id); // re-insert so the map stays oldest first
+    verdicts.delete(id);
     verdicts.set(id, v);
   }
 
-  /** Returns how many verdicts were new or newer than ours. */
-  function merge(stored) {
+    function merge(stored) {
     let changed = 0;
     for (const [id, v] of decode(stored)) {
       if (!isNewer(v, verdicts.get(id))) continue;
@@ -168,9 +147,6 @@
   function saveNow() {
     clearTimeout(saveTimer);
     saveTimer = 0;
-    // Free answers due a re-check aren't worth keeping. Over the cap,
-    // forget the oldest free ones next, since losing one only costs a
-    // re-check, then the oldest paid ones.
     for (const [id, v] of verdicts) if (!isFresh(v)) verdicts.delete(id);
     let excess = verdicts.size - CFG.maxCached;
     for (const restricted of [false, true]) {
@@ -188,8 +164,6 @@
     }
     safeChrome(() => chrome.storage.local.set({ verdicts: out }));
   }
-
-  // ---- Video URLs -----------------------------------------------------------
 
   function videoRef(url) {
     if (url.pathname === "/watch") {
@@ -211,7 +185,7 @@
       return null;
     }
     if (url.hostname !== location.hostname) return null;
-    if (url.pathname === "/watch" && url.searchParams.has("list")) return null; // playlists and mixes
+    if (url.pathname === "/watch" && url.searchParams.has("list")) return null;
     return videoRef(url);
   }
 
@@ -220,8 +194,6 @@
   function rememberPath(ref) {
     if (!paths.has(ref.id)) paths.set(ref.id, ref.path);
   }
-
-  // ---- Cards ----------------------------------------------------------------
 
   const cardFor = (link) =>
     link.closest(CFG.outerCards) || link.closest(CFG.innerCards);
@@ -250,19 +222,16 @@
     if (!settings.enabled || !alive) return;
     const seen = new Set();
     for (const link of document.querySelectorAll(CFG.links)) {
-      // Scans run several times a second while YouTube is busy; skip links
-      // that haven't changed since last time instead of re-parsing them all.
       const href = link.getAttribute("href");
       if (scannedHref.get(link) === href) continue;
       const card = cardFor(link);
-      if (!card) continue; // not in a card yet; look again next scan
+      if (!card) continue;
       scannedHref.set(link, href);
       if (seen.has(card)) continue;
       const ref = parseVideoLink(href);
       if (!ref) continue;
       seen.add(card);
-      // YouTube recycles card elements for different videos, so re-read the
-      // id on every scan and reset the card when it changes.
+      // YouTube reuses card elements for different videos, so re-read the id each scan.
       if (card.dataset.hpwId === ref.id) continue;
       card.dataset.hpwId = ref.id;
       rememberPath(ref);
@@ -293,11 +262,6 @@
     }
   }
 
-  // ---- The video that is open right now -------------------------------------
-
-  // A watch page is only reported in the popup. In the Shorts player a paid
-  // Short is skipped, since Shorts there are fed one after another rather
-  // than chosen from thumbnails.
   function checkOpenVideo() {
     const cur = openVideo();
     if (!cur || !settings.enabled) return banner(null);
@@ -331,7 +295,6 @@
       stats.skipClicks++;
       next.click();
     } else {
-      // No arrow button: fall back to the keyboard shortcut.
       stats.skipKeys++;
       const init = {
         key: "ArrowDown",
@@ -345,7 +308,7 @@
         new KeyboardEvent("keydown", init),
       );
     }
-    setTimeout(checkOpenVideo, CFG.skipDelay + 100); // still on it? try again
+    setTimeout(checkOpenVideo, CFG.skipDelay + 100);
   }
 
   function banner(text) {
@@ -361,18 +324,10 @@
     if (!bannerEl.isConnected && document.body) document.body.append(bannerEl);
   }
 
-  // ---- Looking videos up ----------------------------------------------------
-
-  // Every card is looked up as soon as it appears, so most are answered
-  // before they scroll into view. Cards near the viewport (soon) go in
-  // `queue` and are taken newest first; the rest wait in `backlog` and are
-  // taken top of the page first, whenever nothing nearer is waiting.
   function enqueue(id, soon) {
     if (!id) return;
     if (queued.has(id)) {
       if (!soon) return;
-      // Already waiting: move it up once it nears the viewport, and move
-      // the open video to the front.
       const b = backlog.indexOf(id);
       if (b !== -1) {
         backlog.splice(b, 1);
@@ -409,8 +364,6 @@
     }
   }
 
-  // Resolves to { verdict, problem, backOff }. verdict is "members", "paid" or
-  // false only when the page gave a definite answer.
   async function lookup(id) {
     try {
       const res = await fetch(paths.get(id) || "/watch?v=" + id, {
@@ -427,7 +380,6 @@
         ? { problem: "response was not a video page" }
         : { verdict };
     } catch (e) {
-      // Offline, blocked, or redirected off-site.
       return { problem: "request failed: " + (e?.message || e), backOff: true };
     }
   }
@@ -448,7 +400,7 @@
       return;
     }
 
-    // No answer: leave the card visible, never cache a guess, try again later.
+    // No answer: leave the card visible and never cache a guess.
     stats.failed++;
     stats.lastError = problem;
     attempts.set(id, (attempts.get(id) || 0) + 1);
@@ -468,8 +420,6 @@
     checkOpenVideo();
     pump();
   }
-
-  // ---- Status for the popup -------------------------------------------------
 
   function ancestry(el) {
     const chain = [];
@@ -507,7 +457,6 @@
       if (!parseVideoLink(link.getAttribute("href"))) continue;
       const card = cardFor(link);
       if (!card) {
-        // A few stray links are normal; many means YouTube's card markup changed.
         strayLinks++;
         if (strayExamples.length < 4) {
           const chain = ancestry(link);
@@ -558,8 +507,6 @@
     };
   }
 
-  // ---- Start ----------------------------------------------------------------
-
   function onStorageChanged(changes, area) {
     if (area !== "local") return;
     if (changes.settings) {
@@ -574,12 +521,9 @@
     }
     if (changes.verdicts) {
       if (changes.verdicts.newValue) {
-        // Answers found in other tabs. Our own saves land here too and
-        // change nothing, so skip the card pass for those.
         if (merge(changes.verdicts.newValue))
           for (const card of pendingCards()) resolve(card, card.dataset.hpwId);
       } else {
-        // "Clear saved results" was pressed in the popup.
         verdicts.clear();
         attempts.clear();
         resetCards();
@@ -591,7 +535,6 @@
   safeChrome(() =>
     chrome.storage.local.get(["settings", "verdicts", "rules"]).then((got) => {
       settings = { ...DEFAULTS, ...(got.settings || {}) };
-      // Answers saved under older detection rules are thrown away, not trusted.
       if (got.rules === RULES) {
         merge(got.verdicts);
       } else {
@@ -611,9 +554,7 @@
     alive = false;
   }
 
-  // Only inserted elements and href changes can bring in video links. The
-  // player rewrites its time display and captions many times a second while
-  // a video plays, so ignore text-only changes and anything inside it.
+  // Ignore the video player, which updates many times a second while playing.
   function onMutations(records) {
     if (scanTimer) return;
     for (const r of records) {
@@ -629,8 +570,6 @@
     return false;
   }
 
-  // YouTube is a single-page app with infinite scroll: watch for new cards and
-  // for recycled cards whose links change.
   new MutationObserver(onMutations).observe(document, {
     childList: true,
     subtree: true,
@@ -641,13 +580,10 @@
   window.addEventListener("popstate", scheduleScan);
   document.addEventListener("DOMContentLoaded", scheduleScan);
 
-  // Swiping through Shorts doesn't always touch the parts of the page we
-  // observe, so also check the open video on a slow tick.
   setInterval(() => {
     if (settings.enabled && alive && openVideo()) checkOpenVideo();
   }, 1000);
 
-  // Don't lose answers found just before leaving the page.
   window.addEventListener("pagehide", () => {
     if (saveTimer) saveNow();
   });

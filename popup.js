@@ -7,18 +7,14 @@ const kindBoxes = document.querySelectorAll('input[data-kind]');
 
 let settings = { ...DEFAULTS };
 
-// ---- Settings and totals ----------------------------------------------------
-
 function renderSettings() {
   $('enabled').checked = settings.enabled;
   $('kinds').disabled = !settings.enabled;
   for (const box of kindBoxes) box.checked = settings[box.dataset.kind];
-  // Only show the counter for kinds that are being hidden.
   for (const kind of KINDS) $(kind).closest('.stat').hidden = !settings[kind];
 }
 
-// verdicts is { members: "id1…", paid: "id2…", ok: { "<day>": "id3id4…" } },
-// made of back-to-back 11-character video ids.
+// verdicts holds back-to-back 11-character video ids per kind (see content.js).
 function renderCounts(verdicts = {}) {
   let total = 0;
   for (const kind of KINDS) {
@@ -59,9 +55,6 @@ for (const box of kindBoxes) {
 
 $('clear').addEventListener('click', () => chrome.storage.local.remove('verdicts'));
 
-// ---- What the extension is doing in the current tab ------------------------
-
-// [message, colour of the "This tab" box] for each state of the open video.
 function describeOpenVideo(v, hiding) {
   const name = { members: 'Members-only', paid: 'Paid movie or show' }[v.label];
   if (name && !hiding[v.label]) return [`${name} · shown (option off)`, 'info'];

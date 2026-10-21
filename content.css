@@ -1,14 +1,9 @@
-/* Each kind of paid video is removed only while its option is on:
-   html.hpw-members  members-only videos
-   html.hpw-paid     movies and shows to buy or rent, pay-per-view, … */
+/* Each kind is hidden only while its option's class is on <html>. */
 html.hpw-members [data-hpw="members"],
 html.hpw-paid [data-hpw="paid"] {
   display: none !important;
 }
 
-/* Cards that already show a badge ("Members only", or a price / "Buy or
-   rent" on movies) are removed straight away, before the background check
-   has answered. */
 html.hpw-members
   :is(
     ytd-rich-item-renderer,
@@ -29,11 +24,8 @@ html.hpw-paid
   display: none !important;
 }
 
-/* Close the gaps. YouTube's home, subscriptions and channel grids are built
-   from fixed rows (or fixed-width items with first-column margins), so a
-   removed card leaves a hole. Lay the grid out as one free-flowing CSS grid
-   instead, so the following videos move up to fill the space. Search results
-   and the sidebar are plain lists and already close up on their own. */
+/* Turn YouTube's fixed-row grids into one free-flowing grid, so removed
+   cards leave no gaps. */
 html.hpw-hide ytd-rich-grid-renderer > #contents {
   display: grid !important;
   grid-template-columns: repeat(
@@ -42,7 +34,6 @@ html.hpw-hide ytd-rich-grid-renderer > #contents {
   );
   column-gap: var(--ytd-rich-grid-item-margin, 16px);
 }
-/* Unwrap row containers so their videos become cells of that grid. */
 html.hpw-hide ytd-rich-grid-renderer > #contents > ytd-rich-grid-row,
 html.hpw-hide
   ytd-rich-grid-renderer
@@ -62,7 +53,6 @@ html.hpw-hide
   margin-left: 0 !important;
   margin-right: 0 !important;
 }
-/* Shelves (Shorts, news, …) and the "load more" spinner span the full width. */
 html.hpw-hide
   ytd-rich-grid-renderer
   > #contents
@@ -70,7 +60,6 @@ html.hpw-hide
   grid-column: 1 / -1;
 }
 
-/* Notice shown in the Shorts player. */
 #hpw-banner {
   position: fixed;
   top: 68px;
